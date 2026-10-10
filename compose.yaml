@@ -1,0 +1,66 @@
+name: docker-ctf-control
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    image: docker-ctf/control-api:stage1
+    user: "10001:10001"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 64
+    mem_limit: 256m
+    cpus: 0.5
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=16m"]
+    environment:
+      LAB_DATABASE: /data/lab.sqlite3
+    secrets: [api_token, flag_hashes]
+    volumes: ["progress:/data"]
+    networks: [control]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=3).close()"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    logging:
+      driver: json-file
+      options: {max-size: 5m, max-file: "2"}
+  ui:
+    build:
+      context: .
+      dockerfile: Dockerfile.ui
+    image: docker-ctf/control-ui:stage1
+    user: "10001:10001"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 128
+    mem_limit: 768m
+    cpus: 1.0
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=64m"]
+    secrets: [api_token]
+    environment:
+      LAB_API_URL: http://api:8080
+      STREAMLIT_SERVER_COOKIE_SECRET: ${STREAMLIT_COOKIE_SECRET:?Execute scripts/init_lab.py}
+    ports: ["127.0.0.1:${UI_PORT:-8501}:8501"]
+    networks: [control]
+    depends_on:
+      api: {condition: service_healthy}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8501/_stcore/health', timeout=3).close()"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    logging:
+      driver: json-file
+      options: {max-size: 5m, max-file: "2"}
+networks:
+  control: {internal: true}
+volumes:
+  progress:
+secrets:
+  api_token: {file: .private/api_token}
+  flag_hashes: {file: .private/flag_hashes.json}
